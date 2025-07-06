@@ -217,10 +217,12 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 
 	switch {
 	case op1.Type == RETAIN || op2.Type == RETAIN:
-		return op1, op2, nil
+		return CopyOperation(op1),
+			CopyOperation(op2),
+			nil
 	case op1.Type == INSERT && op2.Type == INSERT:
 		if (op1.Position < op2.Position) || (op1.Position == op2.Position && op1.Text < op2.Text) {
-			return op1,
+			return CopyOperation(op1),
 				&Operation{INSERT,
 					op2.Position + op1.Length,
 					op2.Text,
@@ -229,12 +231,66 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 				nil
 		}
 		if (op2.Position < op1.Position) || (op1.Position == op2.Position && op1.Text > op2.Text) {
-			return &Operation{INSERT, op1.Position + op2.Length, op1.Text, op1.Length, op1.Version}, op2, nil
+			return &Operation{INSERT,
+					op1.Position + op2.Length,
+					op1.Text,
+					op1.Length,
+					op1.Version},
+				CopyOperation(op2),
+				nil
 		}
 
 		// if operations are identical, local transformation has been acknowledged
 		// results in no operation for both pending + remote queue, and it can be safely discarded
 		return Noop, Noop, nil
+
+	case op1.Type == INSERT && op2.Type == DELETE:
+		if op1.Position <= op2.Position {
+			return CopyOperation(op1),
+				&Operation{DELETE,
+					op2.Position + op1.Length,
+					op2.Text,
+					op2.Length,
+					op2.Version},
+				nil
+		}
+		if op1.Position >= op2.Position+op2.Length {
+			return &Operation{INSERT,
+					op1.Position - op2.Length,
+					op1.Text,
+					op1.Length,
+					op1.Version},
+				CopyOperation(op2),
+				nil
+		}
+		return Noop,
+			&Operation{DELETE, op1.Position, "", op1.Length + op2.Length, op1.Version},
+			nil
+
+	case op1.Type == DELETE && op2.Type == INSERT:
+		if op1.Position >= op2.Position {
+			return &Operation{DELETE, op1.Position + op2.Length, "", op1.Length, op1.Version}, CopyOperation(op2), nil
+		}
+
+		if op1.Position <= op2.Position {
+			return CopyOperation(op1),
+				&Operation{INSERT,
+					op2.Position - op1.Length,
+					op2.Text,
+					op2.Length,
+					op2.Version},
+				nil
+		}
+
+		return &Operation{DELETE,
+				op1.Position,
+				"",
+				op1.Length + op2.Length,
+				op1.Version},
+			CopyOperation(op2),
+			nil
+
+	case op1.Type == DELETE && op2.Type == DELETE:
 
 	}
 	return nil, nil, &OTException{"Unknown transform case", 500}

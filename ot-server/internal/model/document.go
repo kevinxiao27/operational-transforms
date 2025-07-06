@@ -23,6 +23,12 @@ type Operation struct {
 	Version  int64
 }
 
+var Noop = &Operation{Type: RETAIN, Position: 0, Text: "", Length: 0, Version: 0}
+
+func CopyOperation(o *Operation) *Operation {
+	return &Operation{o.Type, o.Position, o.Text, o.Length, o.Version}
+}
+
 type OperationResult struct {
 	Operation *Operation
 	Content   string
@@ -195,10 +201,10 @@ func (d *PlainTextDocument) transformAgainstHistory(operation *Operation, baseVe
 	}
 
 	for i := int(baseVersion); i < len(d.history); i++ {
-		// historyOp := d.history[i]
+		historyOp := d.history[i]
 		var err error
 		// TODO implement transform
-		// transformed, err = d.transform(transformed, historyOp, true)
+		transformed, _, err = d.transform(transformed, historyOp)
 		if err != nil {
 			return nil, err
 		}
@@ -207,11 +213,34 @@ func (d *PlainTextDocument) transformAgainstHistory(operation *Operation, baseVe
 	return transformed, nil
 }
 
-func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, error) {
-	return nil, &OTException{"TODO unimplemented", 500}
+func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operation, error) {
+
+	switch {
+	case op1.Type == RETAIN || op2.Type == RETAIN:
+		return op1, op2, nil
+	case op1.Type == INSERT && op2.Type == INSERT:
+		if (op1.Position < op2.Position) || (op1.Position == op2.Position && op1.Text < op2.Text) {
+			return op1,
+				&Operation{INSERT,
+					op2.Position + op1.Length,
+					op2.Text,
+					op2.Length,
+					op2.Version},
+				nil
+		}
+		if (op2.Position < op1.Position) || (op1.Position == op2.Position && op1.Text > op2.Text) {
+			return &Operation{INSERT, op1.Position + op2.Length, op1.Text, op1.Length, op1.Version}, op2, nil
+		}
+
+		// if operations are identical, local transformation has been acknowledged
+		// results in no operation for both pending + remote queue, and it can be safely discarded
+		return Noop, Noop, nil
+
+	}
+	return nil, nil, &OTException{"Unknown transform case", 500}
 }
 
-// func (d *PlainTextDocument) transform(op1, op2 *Operation, priority bool) (*Operation, error) {
+// func (d *PlainTextDocument) transform(op1, op2 *Operation, priority bool) (*Operation error) {
 
 // 	result := &Operation{
 // 		Type:     op1.Type,

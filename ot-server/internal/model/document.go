@@ -331,5 +331,5 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 		}
 
 	}
-	return nil, nil, &OTException{"Unknown transform case", 500}
+	return nil, nil, &OTException{fmt.Sprintf("Unknown transform cases %d, %d", op1.Type, op2.Type), 500}
 }

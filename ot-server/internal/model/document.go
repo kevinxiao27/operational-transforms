@@ -303,7 +303,10 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 				// op1 transformed to only include existing diff, op2 applied (noop)
 				return &Operation{DELETE, op2.Position, "", op1.Length - op2.Length, op1.Version}, Noop, nil
 			}
-			// partial overlap
+			// Partial overlap
+			// op1 -> overlap -> op2
+			// op1 takes size from op1 to op2
+			// op2 takes diff from op2 to end
 			return &Operation{DELETE, op1.Position, "", op2.Position - op1.Position, op1.Version}, //
 				&Operation{DELETE, op1.Position, "", op2.Position + op2.Length - (op1.Position + op1.Length), op2.Version},
 				nil

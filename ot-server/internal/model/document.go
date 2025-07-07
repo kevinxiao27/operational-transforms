@@ -247,22 +247,15 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 	case op1.Type == INSERT && op2.Type == DELETE:
 		if op1.Position <= op2.Position {
 			return CopyOperation(op1),
-				&Operation{DELETE,
-					op2.Position + op1.Length,
-					op2.Text,
-					op2.Length,
-					op2.Version},
+				&Operation{DELETE, op2.Position + op1.Length, op2.Text, op2.Length, op2.Version},
 				nil
 		}
 		if op1.Position >= op2.Position+op2.Length {
-			return &Operation{INSERT,
-					op1.Position - op2.Length,
-					op1.Text,
-					op1.Length,
-					op1.Version},
-				CopyOperation(op2),
-				nil
+			return &Operation{INSERT, op1.Position - op2.Length, op1.Text, op1.Length, op1.Version}, CopyOperation(op2), nil
 		}
+
+		// Insert operation of op1 must be deleted
+		// doesn't prove intention but maintains transformational property
 		return Noop,
 			&Operation{DELETE, op1.Position, "", op1.Length + op2.Length, op1.Version},
 			nil
@@ -272,72 +265,71 @@ func (d *PlainTextDocument) transform(op1, op2 *Operation) (*Operation, *Operati
 			return &Operation{DELETE, op1.Position + op2.Length, "", op1.Length, op1.Version}, CopyOperation(op2), nil
 		}
 
-		if op1.Position <= op2.Position {
+		if op1.Position+op1.Length <= op2.Position {
 			return CopyOperation(op1),
-				&Operation{INSERT,
-					op2.Position - op1.Length,
-					op2.Text,
-					op2.Length,
-					op2.Version},
+				&Operation{INSERT, op2.Position - op1.Length, op2.Text, op2.Length, op2.Version},
 				nil
 		}
 
-		return &Operation{DELETE,
-				op1.Position,
-				"",
-				op1.Length + op2.Length,
-				op1.Version},
-			CopyOperation(op2),
+		// same issue as above
+		return &Operation{DELETE, op1.Position, "", op1.Length + op2.Length, op1.Version},
+			Noop,
 			nil
 
 	case op1.Type == DELETE && op2.Type == DELETE:
+		if op1.Position == op2.Position {
+			if op1.Length == op2.Length {
+				return Noop, Noop, nil
+			} else if op1.Length < op2.Length {
+				return Noop,
+					&Operation{DELETE,
+						op2.Position,
+						"",
+						op2.Length - op1.Length, // remaining unapplied diff
+						op2.Version},
+					nil
+			}
+			return &Operation{DELETE, op1.Position, "", op1.Length - op2.Length, op1.Version},
+				Noop,
+				nil
+		}
+		if op1.Position < op2.Position {
+			if op1.Position+op1.Length <= op2.Position {
+				// op1 fully before op2
+				return CopyOperation(op1),
+					&Operation{DELETE, op2.Position - op1.Length, "", op2.Length, op2.Version}, nil
+			}
+			if op1.Position+op1.Length <= op2.Position+op2.Length { // op1 fully covers op2
+				// op1 transformed to only include existing diff, op2 applied (noop)
+				return &Operation{DELETE, op2.Position, "", op1.Length - op2.Length, op1.Version}, Noop, nil
+			}
+			// partial overlap
+			return &Operation{DELETE, op1.Position, "", op2.Position - op1.Position, op1.Version}, //
+				&Operation{DELETE, op1.Position, "", op2.Position + op2.Length - (op1.Position + op1.Length), op2.Version},
+				nil
+		}
+		if op1.Position > op2.Position {
+			if op1.Position >= op2.Position+op2.Length {
+				// op1 is fully after op2
+				return &Operation{DELETE, op1.Position - op2.Length, "", op1.Length, op1.Version},
+					CopyOperation(op2),
+					nil
+			}
+			if op1.Position+op1.Length <= op2.Position+op2.Length {
+				// op1 is fully within op2 — noop
+				return Noop,
+					&Operation{DELETE, op2.Position, "", op2.Length - op1.Length, op2.Version},
+					nil
+			}
+			// Partial overlap
+			// op2 -> overlap -> op1
+			// op1 takes size from op1 to end
+			// op2 takes diff from op2 to op1
+			return &Operation{DELETE, op2.Position, "", op1.Position + op1.Length - (op2.Position + op2.Length), op1.Version},
+				&Operation{DELETE, op2.Position, "", op1.Position - op2.Position, op2.Version},
+				nil
+		}
 
 	}
 	return nil, nil, &OTException{"Unknown transform case", 500}
 }
-
-// func (d *PlainTextDocument) transform(op1, op2 *Operation, priority bool) (*Operation error) {
-
-// 	result := &Operation{
-// 		Type:     op1.Type,
-// 		Position: op1.Position,
-// 		Text:     op1.Text,
-// 		Length:   op1.Length,
-// 		Version:  op1.Version,
-// 	}
-
-// 	// Basic transformation rules
-// 	switch {
-// 	case op1.Type == INSERT && op2.Type == INSERT:
-// 		if op2.Position <= op1.Position {
-// 			if op2.Position < op1.Position || priority {
-// 				result.Position += len(op2.Text)
-// 			}
-// 		}
-// 	case op1.Type == INSERT && op2.Type == DELETE:
-// 		if op2.Position <= op1.Position {
-// 			if op2.Position+op2.Length <= op1.Position {
-// 				result.Position -= op2.Length
-// 			} else {
-// 				result.Position = op2.Position
-// 			}
-// 		}
-// 	case op1.Type == DELETE && op2.Type == INSERT:
-// 		if op2.Position <= op1.Position {
-// 			result.Position += len(op2.Text)
-// 		}
-// 	case op1.Type == DELETE && op2.Type == DELETE:
-// 		if op2.Position <= op1.Position {
-// 			if op2.Position+op2.Length <= op1.Position {
-// 				result.Position -= op2.Length
-// 			} else {
-// 				// Operations overlap, need more complex logic
-// 				return nil, &OTException{
-// 					Message: "Overlapping delete operations not supported in this simplified implementation",
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	return result, nil
-// }
